@@ -1,0 +1,11 @@
+{
+  "id": "obsidian-phrase-linker",
+  "name": "Phrase Linker",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Learner-built plugin that will auto-link related notes.",
+  "author": "Your Name",
+  "isDesktopOnly": true,
+  "js": "main.js",
+  "css": "styles.css"
+}
