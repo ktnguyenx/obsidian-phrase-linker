@@ -1,13 +1,12 @@
-// src/scanner.ts
-import { Vault, TAbstractFile, TFile, TFolder } from "obsidian";
+import { Vault, TAbstractFile, TFile } from "obsidian";
 
 export interface ScanOptions {
-  ignoreFolders?: string[]; // e.g., ["Templates/", "Archived/"]
+  ignoreFolders?: string[]; // e.g., ["Templates/", "Archive/"]
 }
 
 /** Return all markdown notes in the vault, respecting ignore folders (prefix match). */
 export function listMarkdownFiles(vault: Vault, opts: ScanOptions = {}): TFile[] {
-  const ignores = (opts.ignoreFolders ?? []).map(p => normalizePrefix(p));
+  const ignores = (opts.ignoreFolders ?? []).map(normalizePrefix);
 
   const isIgnored = (path: string) => ignores.some(prefix => path.startsWith(prefix));
   const isMd = (f: TAbstractFile): f is TFile => f instanceof TFile && f.extension === "md";
@@ -16,7 +15,7 @@ export function listMarkdownFiles(vault: Vault, opts: ScanOptions = {}): TFile[]
   return all.filter(isMd).filter(f => !isIgnored(f.path));
 }
 
-/** For convenience when checking prefixes like "Templates/" vs "Templates" */
+/** For convenience when checking prefixes like "Templates/" vs "Templates". */
 function normalizePrefix(p: string): string {
   return p.endsWith("/") ? p : p + "/";
 }

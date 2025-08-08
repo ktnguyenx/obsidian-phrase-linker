@@ -1,15 +1,14 @@
-// main.ts
-import { Notice, Plugin, TFile, MarkdownView } from "obsidian";
+import { App, Notice, Plugin, PluginSettingTab, Setting, ToggleComponent, TFile, MarkdownView } from "obsidian";
 import { listMarkdownFiles, readFile, isPathIgnored } from "./src/scanner";
 import { tokenize, termFreq, topK } from "./src/parser";
-import { PhraseLinkerSettingTab } from "./src/settings";
 
-// helper type so .setText() is typed on the status bar element
+// helper so status bar has .setText()
 type StatusBarEl = HTMLElement & { setText: (text: string) => void };
 
 export default class PhraseLinkerPlugin extends Plugin {
   private statusEl?: StatusBarEl;
-  // Stage-2 simple defaults (real settings in Stage 4)
+
+  // Stage-2 simple defaults (real settings UI/persistence in Stage 4)
   private ignoreFolders: string[] = ["Templates/", "Archive/"];
 
   async onload(): Promise<void> {
@@ -20,13 +19,14 @@ export default class PhraseLinkerPlugin extends Plugin {
     this.statusEl.classList.add("phrase-linker-status");
     this.statusEl.setText("Phrase Linker: ready");
 
-    // commands
+    // command: scan entire vault
     this.addCommand({
       id: "pl-scan-vault",
       name: "PL: Scan vault (list markdown files)",
       callback: () => this.handleScanVault(),
     });
 
+    // command: analyze active note (toy parser)
     this.addCommand({
       id: "pl-analyze-active",
       name: "PL: Analyze active note (top terms)",
@@ -38,8 +38,8 @@ export default class PhraseLinkerPlugin extends Plugin {
     this.registerEvent(this.app.vault.on("modify", (file) => this.onFileChanged("modify", file)));
     this.registerEvent(this.app.vault.on("delete", (file) => this.onFileChanged("delete", file as unknown as TFile)));
 
-    // settings tab
-    this.addSettingTab(new PhraseLinkerSettingTab(this.app, this));
+    // simple settings tab (placeholder)
+    this.addSettingTab(new SimplePLSettingTab(this.app, this));
   }
 
   onunload(): void {
@@ -99,5 +99,25 @@ export default class PhraseLinkerPlugin extends Plugin {
       console.error("Analyze failed:", err);
       new Notice("Analyze failed (see console)");
     }
+  }
+}
+
+class SimplePLSettingTab extends PluginSettingTab {
+  constructor(app: App, private plugin: PhraseLinkerPlugin) {
+    super(app, plugin);
+  }
+  display(): void {
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.createEl("h2", { text: "Phrase Linker (Learner Settings)" });
+
+    new Setting(containerEl)
+      .setName("Example toggle")
+      .setDesc("Does nothing yet; here to prove settings work.")
+      .addToggle((t: ToggleComponent) => {
+        t.setValue(false).onChange((v: boolean) => {
+          new Notice(`Example toggle: ${v}`);
+        });
+      });
   }
 }

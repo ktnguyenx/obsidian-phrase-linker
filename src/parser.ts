@@ -1,17 +1,15 @@
-// src/parser.ts
-
-// Tiny stopword list (expand later). Keep it simple for Stage 2.
+// Minimal stopword list (expand later).
 const STOPWORDS = new Set([
   "the","a","an","of","to","and","in","is","it","that","for","on","with",
-  "as","at","by","be","are","was","were","this","from","or","but","so",
+  "as","at","by","be","are","was","were","this","from","or","but","so"
 ]);
 
-/** Convert text → array of lowercase tokens (letters/numbers only), minus stopwords. */
+/** Convert text → tokens (lowercase letters/numbers), minus stopwords. */
 export function tokenize(text: string): string[] {
   const cleaned = text
     .toLowerCase()
-    .replace(/[#*_\[\](){}<>`~^=+|:\\/]/g, " ") // strip md-ish punctuation
-    .replace(/[^\p{L}\p{N}\s-]/gu, " ");        // drop symbols (keep letters/numbers)
+    .replace(/[#*_\[\](){}<>`~^=+|:\\/]/g, " ") // strip md punctuation-ish
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ");        // keep letters/numbers/spaces/hyphens
   const raw = cleaned.split(/\s+/).filter(Boolean);
   return raw.filter(t => !STOPWORDS.has(t));
 }
