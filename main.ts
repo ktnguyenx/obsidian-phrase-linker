@@ -1,50 +1,64 @@
-import { App, Notice, Plugin, PluginSettingTab, Setting, ToggleComponent, TFile, MarkdownView } from "obsidian";
+// main.ts
+import {
+  App, Notice, Plugin, PluginSettingTab, Setting, ToggleComponent,
+  TFile, TAbstractFile, MarkdownView
+} from "obsidian";
 import { listMarkdownFiles, readFile, isPathIgnored } from "./src/scanner";
 import { tokenize, termFreq, topK } from "./src/parser";
+import { NoteCache, contentHash } from "./src/cache";
+import { suggestLinks } from "./src/linker";
 
 // helper so status bar has .setText()
 type StatusBarEl = HTMLElement & { setText: (text: string) => void };
 
 export default class PhraseLinkerPlugin extends Plugin {
   private statusEl?: StatusBarEl;
-
-  // Stage-2 simple defaults (real settings UI/persistence in Stage 4)
   private ignoreFolders: string[] = ["Templates/", "Archive/"];
+  private cache = new NoteCache();
 
   async onload(): Promise<void> {
-    console.log("[PhraseLinker] onload (Stage 2)");
+    console.log("[PhraseLinker] onload (Stage 3)");
 
-    // status bar
     this.statusEl = this.addStatusBarItem() as StatusBarEl;
     this.statusEl.classList.add("phrase-linker-status");
     this.statusEl.setText("Phrase Linker: ready");
 
-    // command: scan entire vault
     this.addCommand({
       id: "pl-scan-vault",
       name: "PL: Scan vault (list markdown files)",
       callback: () => this.handleScanVault(),
     });
 
-    // command: analyze active note (toy parser)
     this.addCommand({
       id: "pl-analyze-active",
       name: "PL: Analyze active note (top terms)",
       callback: () => this.handleAnalyzeActive(),
     });
 
-    // event-driven hooks
-    this.registerEvent(this.app.vault.on("create", (file) => this.onFileChanged("create", file)));
-    this.registerEvent(this.app.vault.on("modify", (file) => this.onFileChanged("modify", file)));
-    this.registerEvent(this.app.vault.on("delete", (file) => this.onFileChanged("delete", file as unknown as TFile)));
+    // NEW: build index & suggest links (no writes)
+    this.addCommand({
+      id: "pl-build-and-suggest",
+      name: "PL: Build index & suggest links (no writes)",
+      callback: () => this.handleBuildAndSuggest(),
+    });
 
-    // simple settings tab (placeholder)
+    this.registerEvent(this.app.vault.on("create", (file: TAbstractFile) =>
+      this.onFileChanged("create", file)
+    ));
+    this.registerEvent(this.app.vault.on("modify", (file: TAbstractFile) =>
+      this.onFileChanged("modify", file)
+    ));
+    this.registerEvent(this.app.vault.on("delete", (file: TAbstractFile) =>
+      this.onFileChanged("delete", file)
+    ));
+
     this.addSettingTab(new SimplePLSettingTab(this.app, this));
   }
 
   onunload(): void {
     console.log("[PhraseLinker] onunload");
     this.statusEl?.setText("");
+    this.cache.clear();
   }
 
   // ---------- handlers ----------
@@ -67,12 +81,48 @@ export default class PhraseLinkerPlugin extends Plugin {
     await this.analyzeFile(view.file);
   }
 
-  private async onFileChanged(kind: "create" | "modify" | "delete", fileLike: TFile | any): Promise<void> {
+  private async handleBuildAndSuggest(): Promise<void> {
+    const files = listMarkdownFiles(this.app.vault, { ignoreFolders: this.ignoreFolders });
+    if (files.length < 2) {
+      new Notice("Need at least 2 notes for similarity.");
+      return;
+    }
+
+    // parse all files (cached)
+    const tfs: Array<Map<string, number>> = [];
+    const names: string[] = [];
+    for (const f of files) {
+      const { tf } = await this.parseWithCache(f);
+      tfs.push(tf);
+      names.push(f.basename);
+    }
+
+    const { suggestions } = suggestLinks(tfs, { minScore: 0.22, maxLinksPerNote: 5 });
+
+    // pretty print
+    console.groupCollapsed(`🔗 Suggestions (no writes) for ${files.length} notes`);
+    const rows = suggestions.map(s => ({
+      from: names[s.srcIdx],
+      to: names[s.dstIdx],
+      score: s.score
+    }));
+    console.table(rows);
+    console.groupEnd();
+
+    new Notice(`Suggested ${rows.length} links (see console)`);
+    this.statusEl?.setText(`Suggested links for ${files.length} notes`);
+  }
+
+  private async onFileChanged(kind: "create" | "modify" | "delete", fileLike: TAbstractFile): Promise<void> {
+    if (!(fileLike instanceof TFile)) return;
     const file = fileLike as TFile;
-    if (!file || file.extension !== "md") return;
+    if (file.extension !== "md") return;
     if (isPathIgnored(file.path, this.ignoreFolders)) return;
 
     if (kind === "delete") {
+      // removing from cache is optional (content hash changes make stale entries harmless),
+      // but we’ll just clear all for simplicity in Stage 3.
+      this.cache.clear();
       console.log(`🗑️ Deleted: ${file.path}`);
       return;
     }
@@ -81,20 +131,29 @@ export default class PhraseLinkerPlugin extends Plugin {
     await this.analyzeFile(file);
   }
 
-  // ---------- toy analysis ----------
+  // ---------- parsing / cache ----------
+
+  private async parseWithCache(file: TFile): Promise<{ tokens: string[]; tf: Map<string, number> }> {
+    const text = await readFile(this.app.vault, file);
+    const hash = contentHash(text);
+
+    const cached = this.cache.get(file.path, hash);
+    if (cached) return { tokens: cached.tokens, tf: cached.tf };
+
+    const tokens = tokenize(text);
+    const tf = termFreq(tokens);
+    this.cache.set(file.path, { hash, tokens, tf });
+    return { tokens, tf };
+  }
 
   private async analyzeFile(file: TFile): Promise<void> {
     try {
-      const text = await readFile(this.app.vault, file);
-      const tokens = tokenize(text);
-      const freq = termFreq(tokens);
-      const top = topK(freq, 10);
-
+      const { tokens, tf } = await this.parseWithCache(file);
+      const top = topK(tf, 10);
       console.groupCollapsed(`🔍 Top terms: ${file.path}`);
       console.table(top);
       console.groupEnd();
-
-      this.statusEl?.setText(`Analyzed: ${file.basename}`);
+      this.statusEl?.setText(`Analyzed: ${file.basename} (${tokens.length} tokens)`);
     } catch (err) {
       console.error("Analyze failed:", err);
       new Notice("Analyze failed (see console)");

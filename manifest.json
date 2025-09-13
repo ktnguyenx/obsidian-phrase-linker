@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
   "description": "Learner-built plugin that will auto-link related notes.",
-  "author": "Your Name",
+  "author": "Lorraine Nguyen",
   "isDesktopOnly": true,
   "js": "main.js",
   "css": "styles.css"
