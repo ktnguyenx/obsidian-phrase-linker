@@ -1,4 +1,4 @@
-# Stage 4 - Settings + Dry-run Preview (March 2026)
+# Stage 4 - Settings + Dry-run Preview (September 2025)
 
 ## What I added
 - Persistent plugin settings via `loadData()` / `saveData()`.

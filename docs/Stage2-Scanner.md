@@ -1,4 +1,4 @@
-# Stage 2 – Vault Scanner & Events (August)
+# Stage 2 - Vault Scanner & Events (August 2025)
 
 ## What I added
 - Scanner to list `.md` files (respects hard-coded ignored folders).

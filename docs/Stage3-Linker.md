@@ -1,4 +1,4 @@
-# Stage 3 – Linker, TF-IDF, Cosine, Cache (September)
+# Stage 3 - Linker, TF-IDF, Cosine, Cache (September 2025)
 
 ## What I added
 - TF-IDF vectors and cosine similarity across notes.
