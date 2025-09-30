@@ -8,7 +8,9 @@
 - Vault scan for `.md` files
 - Lightweight text parsing (tokens + stopwords)
 - Event-driven analysis on create/modify/delete
-- (WIP) Related-links suggestion (cosine similarity)
+- Related-links suggestion (TF-IDF + cosine similarity)
+- Dry-run preview panel for suggested links
+- Persistent settings for ignore folders and link thresholds
 
 ## Install
 1) Copy folder into your vault: `.obsidian/plugins/obsidian-phrase-linker`
@@ -19,16 +21,24 @@
 - Command palette:
   - **PL: Scan vault**
   - **PL: Analyze active note**
+  - **PL: Build index & suggest links (no writes)**
+  - **PL: Preview related links (dry run panel)**
 
 ## Settings
-- (Stage 4) Ignored folders, thresholds, link limits
+- Ignored folders (comma-separated)
+- Minimum similarity score (0.00-1.00)
+- Max links per note
+- Auto-open preview after build
 
 ## Dev Setup
 ```bash
 npm install
 npm run dev # watch
+```
 
 ## Notes & Logs
-- [Stage 1 notes](docs/reflections/Stage1-Setup.md)
-- [Stage 2 notes](docs/reflections/Stage2-Scanner.md)
+- [Stage 1 notes](docs/Stage1-Setup.md)
+- [Stage 2 notes](docs/Stage2-Scanner.md)
+- [Stage 3 notes](docs/Stage3-Linker.md)
+- [Stage 4 notes](docs/Stage4-Settings-and-Preview.md)
 - [Bugs & fixes log](docs/feedback/bugs-and-fixes.md)

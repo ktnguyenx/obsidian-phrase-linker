@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => PhraseLinkerPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian2 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // src/scanner.ts
 var import_obsidian = require("obsidian");
@@ -192,15 +192,108 @@ function suggestLinks(tfs, opts = {}) {
   return { tfidf, suggestions };
 }
 
+// src/settings.ts
+var import_obsidian2 = require("obsidian");
+var DEFAULT_SETTINGS = {
+  ignoreFolders: ["Templates/", "Archive/"],
+  minScore: 0.22,
+  maxLinksPerNote: 5,
+  showPreviewOnBuild: true
+};
+var PhraseLinkerSettingTab = class extends import_obsidian2.PluginSettingTab {
+  constructor(app, plugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+  display() {
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.createEl("h2", { text: "Phrase Linker" });
+    new import_obsidian2.Setting(containerEl).setName("Ignored folders").setDesc("Comma-separated folder prefixes. Example: Templates/, Archive/").addTextArea((ta) => {
+      ta.setPlaceholder("Templates/, Archive/").setValue(this.plugin.settings.ignoreFolders.join(", ")).onChange(async (value) => {
+        const folders = value.split(",").map((v) => v.trim()).filter(Boolean);
+        this.plugin.settings.ignoreFolders = folders;
+        await this.plugin.saveSettings();
+      });
+      ta.inputEl.rows = 2;
+      ta.inputEl.addClass("phrase-linker-textarea");
+    });
+    new import_obsidian2.Setting(containerEl).setName("Min similarity score").setDesc("Cosine threshold between 0.00 and 1.00").addText((text) => {
+      text.setPlaceholder("0.22").setValue(this.plugin.settings.minScore.toFixed(2)).onChange(async (value) => {
+        const parsed = Number(value);
+        if (Number.isNaN(parsed) || parsed < 0 || parsed > 1) return;
+        this.plugin.settings.minScore = parsed;
+        await this.plugin.saveSettings();
+      });
+    });
+    new import_obsidian2.Setting(containerEl).setName("Max links per note").setDesc("Top related notes kept per source note").addText((text) => {
+      text.setPlaceholder("5").setValue(String(this.plugin.settings.maxLinksPerNote)).onChange(async (value) => {
+        const parsed = Number(value);
+        if (!Number.isInteger(parsed) || parsed < 1) return;
+        this.plugin.settings.maxLinksPerNote = parsed;
+        await this.plugin.saveSettings();
+      });
+    });
+    new import_obsidian2.Setting(containerEl).setName("Open preview after build").setDesc("Shows dry-run suggestions panel after running build command").addToggle((toggle) => {
+      toggle.setValue(this.plugin.settings.showPreviewOnBuild).onChange(async (value) => {
+        this.plugin.settings.showPreviewOnBuild = value;
+        await this.plugin.saveSettings();
+        new import_obsidian2.Notice(`Preview on build: ${value ? "on" : "off"}`);
+      });
+    });
+  }
+};
+
+// src/preview.ts
+var import_obsidian3 = require("obsidian");
+var SuggestionsPreviewModal = class extends import_obsidian3.Modal {
+  constructor(app, rows, fileCount) {
+    super(app);
+    this.rows = rows;
+    this.fileCount = fileCount;
+  }
+  onOpen() {
+    const { contentEl, titleEl } = this;
+    titleEl.setText("Phrase Linker: Dry-run Suggestions");
+    contentEl.empty();
+    contentEl.createEl("p", {
+      text: `Scanned ${this.fileCount} notes. Suggested ${this.rows.length} links (no writes).`
+    });
+    if (this.rows.length === 0) {
+      contentEl.createEl("p", {
+        text: "No suggestions matched the current threshold."
+      });
+      return;
+    }
+    const table = contentEl.createEl("table", { cls: "phrase-linker-preview-table" });
+    const head = table.createEl("thead");
+    const headRow = head.createEl("tr");
+    headRow.createEl("th", { text: "From" });
+    headRow.createEl("th", { text: "To" });
+    headRow.createEl("th", { text: "Score" });
+    const body = table.createEl("tbody");
+    for (const row of this.rows) {
+      const tr = body.createEl("tr");
+      tr.createEl("td", { text: row.from });
+      tr.createEl("td", { text: row.to });
+      tr.createEl("td", { text: row.score.toFixed(3), cls: "phrase-linker-score" });
+    }
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+
 // main.ts
-var PhraseLinkerPlugin = class extends import_obsidian2.Plugin {
+var PhraseLinkerPlugin = class extends import_obsidian4.Plugin {
   constructor() {
     super(...arguments);
-    this.ignoreFolders = ["Templates/", "Archive/"];
     this.cache = new NoteCache();
+    this.settings = { ...DEFAULT_SETTINGS };
   }
   async onload() {
-    console.log("[PhraseLinker] onload (Stage 3)");
+    console.log("[PhraseLinker] onload (Stage 4)");
+    await this.loadSettings();
     this.statusEl = this.addStatusBarItem();
     this.statusEl.classList.add("phrase-linker-status");
     this.statusEl.setText("Phrase Linker: ready");
@@ -219,6 +312,11 @@ var PhraseLinkerPlugin = class extends import_obsidian2.Plugin {
       name: "PL: Build index & suggest links (no writes)",
       callback: () => this.handleBuildAndSuggest()
     });
+    this.addCommand({
+      id: "pl-preview-suggestions",
+      name: "PL: Preview related links (dry run panel)",
+      callback: () => this.handlePreviewSuggestions()
+    });
     this.registerEvent(this.app.vault.on(
       "create",
       (file) => this.onFileChanged("create", file)
@@ -231,7 +329,7 @@ var PhraseLinkerPlugin = class extends import_obsidian2.Plugin {
       "delete",
       (file) => this.onFileChanged("delete", file)
     ));
-    this.addSettingTab(new SimplePLSettingTab(this.app, this));
+    this.addSettingTab(new PhraseLinkerSettingTab(this.app, this));
   }
   onunload() {
     console.log("[PhraseLinker] onunload");
@@ -240,51 +338,44 @@ var PhraseLinkerPlugin = class extends import_obsidian2.Plugin {
   }
   // ---------- handlers ----------
   async handleScanVault() {
-    const files = listMarkdownFiles(this.app.vault, { ignoreFolders: this.ignoreFolders });
+    const files = listMarkdownFiles(this.app.vault, { ignoreFolders: this.settings.ignoreFolders });
     console.groupCollapsed(`\u{1F5C2}\uFE0F ${files.length} markdown files`);
     console.table(files.map((f) => ({ path: f.path, name: f.basename })));
     console.groupEnd();
-    new import_obsidian2.Notice(`Scanned ${files.length} notes`);
+    new import_obsidian4.Notice(`Scanned ${files.length} notes`);
     this.statusEl?.setText(`Phrase Linker: ${files.length} notes`);
   }
   async handleAnalyzeActive() {
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian2.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
     if (!view || !view.file) {
-      new import_obsidian2.Notice("Open a markdown note first.");
+      new import_obsidian4.Notice("Open a markdown note first.");
       return;
     }
     await this.analyzeFile(view.file);
   }
   async handleBuildAndSuggest() {
-    const files = listMarkdownFiles(this.app.vault, { ignoreFolders: this.ignoreFolders });
-    if (files.length < 2) {
-      new import_obsidian2.Notice("Need at least 2 notes for similarity.");
-      return;
-    }
-    const tfs = [];
-    const names = [];
-    for (const f of files) {
-      const { tf } = await this.parseWithCache(f);
-      tfs.push(tf);
-      names.push(f.basename);
-    }
-    const { suggestions } = suggestLinks(tfs, { minScore: 0.22, maxLinksPerNote: 5 });
-    console.groupCollapsed(`\u{1F517} Suggestions (no writes) for ${files.length} notes`);
-    const rows = suggestions.map((s) => ({
-      from: names[s.srcIdx],
-      to: names[s.dstIdx],
-      score: s.score
-    }));
-    console.table(rows);
-    console.groupEnd();
-    new import_obsidian2.Notice(`Suggested ${rows.length} links (see console)`);
+    const result = await this.collectSuggestions();
+    if (!result) return;
+    const { files, rows } = result;
+    this.logSuggestionRows(rows, files.length);
+    new import_obsidian4.Notice(`Suggested ${rows.length} links (see console)`);
     this.statusEl?.setText(`Suggested links for ${files.length} notes`);
+    if (this.settings.showPreviewOnBuild) {
+      new SuggestionsPreviewModal(this.app, rows, files.length).open();
+    }
+  }
+  async handlePreviewSuggestions() {
+    const result = await this.collectSuggestions();
+    if (!result) return;
+    const { files, rows } = result;
+    new SuggestionsPreviewModal(this.app, rows, files.length).open();
+    this.statusEl?.setText(`Previewed links for ${files.length} notes`);
   }
   async onFileChanged(kind, fileLike) {
-    if (!(fileLike instanceof import_obsidian2.TFile)) return;
+    if (!(fileLike instanceof import_obsidian4.TFile)) return;
     const file = fileLike;
     if (file.extension !== "md") return;
-    if (isPathIgnored(file.path, this.ignoreFolders)) return;
+    if (isPathIgnored(file.path, this.settings.ignoreFolders)) return;
     if (kind === "delete") {
       this.cache.clear();
       console.log(`\u{1F5D1}\uFE0F Deleted: ${file.path}`);
@@ -314,23 +405,46 @@ var PhraseLinkerPlugin = class extends import_obsidian2.Plugin {
       this.statusEl?.setText(`Analyzed: ${file.basename} (${tokens.length} tokens)`);
     } catch (err) {
       console.error("Analyze failed:", err);
-      new import_obsidian2.Notice("Analyze failed (see console)");
+      new import_obsidian4.Notice("Analyze failed (see console)");
     }
   }
-};
-var SimplePLSettingTab = class extends import_obsidian2.PluginSettingTab {
-  constructor(app, plugin) {
-    super(app, plugin);
-    this.plugin = plugin;
+  async loadSettings() {
+    const loaded = await this.loadData();
+    this.settings = { ...DEFAULT_SETTINGS, ...loaded ?? {} };
+    this.settings.ignoreFolders = this.settings.ignoreFolders.map((p) => p.trim()).filter(Boolean);
+    this.settings.minScore = Math.min(1, Math.max(0, this.settings.minScore));
+    this.settings.maxLinksPerNote = Math.max(1, Math.floor(this.settings.maxLinksPerNote));
   }
-  display() {
-    const { containerEl } = this;
-    containerEl.empty();
-    containerEl.createEl("h2", { text: "Phrase Linker (Learner Settings)" });
-    new import_obsidian2.Setting(containerEl).setName("Example toggle").setDesc("Does nothing yet; here to prove settings work.").addToggle((t) => {
-      t.setValue(false).onChange((v) => {
-        new import_obsidian2.Notice(`Example toggle: ${v}`);
-      });
+  async saveSettings() {
+    await this.saveData(this.settings);
+  }
+  async collectSuggestions() {
+    const files = listMarkdownFiles(this.app.vault, { ignoreFolders: this.settings.ignoreFolders });
+    if (files.length < 2) {
+      new import_obsidian4.Notice("Need at least 2 notes for similarity.");
+      return null;
+    }
+    const tfs = [];
+    const names = [];
+    for (const f of files) {
+      const { tf } = await this.parseWithCache(f);
+      tfs.push(tf);
+      names.push(f.basename);
+    }
+    const { suggestions } = suggestLinks(tfs, {
+      minScore: this.settings.minScore,
+      maxLinksPerNote: this.settings.maxLinksPerNote
     });
+    const rows = suggestions.map((s) => ({
+      from: names[s.srcIdx],
+      to: names[s.dstIdx],
+      score: s.score
+    }));
+    return { files, rows };
+  }
+  logSuggestionRows(rows, fileCount) {
+    console.groupCollapsed(`\u{1F517} Suggestions (no writes) for ${fileCount} notes`);
+    console.table(rows);
+    console.groupEnd();
   }
 };

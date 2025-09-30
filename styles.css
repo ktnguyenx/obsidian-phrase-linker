@@ -1,1 +1,22 @@
 .phrase-linker-status { padding: 0 8px; }
+
+.phrase-linker-textarea {
+  width: 100%;
+}
+
+.phrase-linker-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+.phrase-linker-preview-table th,
+.phrase-linker-preview-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.phrase-linker-preview-table .phrase-linker-score {
+  font-variant-numeric: tabular-nums;
+}
