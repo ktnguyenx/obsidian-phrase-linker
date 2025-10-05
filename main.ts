@@ -6,12 +6,14 @@ import { listMarkdownFiles, readFile, isPathIgnored } from "./src/scanner";
 import { tokenize, termFreq, topK } from "./src/parser";
 import { NoteCache, contentHash } from "./src/cache";
 import { suggestLinks } from "./src/linker";
+import type { Suggestion } from "./src/linker";
 import {
   PhraseLinkerSettingTab,
   type PhraseLinkerSettings,
   DEFAULT_SETTINGS,
 } from "./src/settings";
 import { SuggestionsPreviewModal, type SuggestionRow } from "./src/preview";
+import { pathToWikiTarget, upsertRelatedSection } from "./src/writer";
 
 // helper so status bar has .setText()
 type StatusBarEl = HTMLElement & { setText: (text: string) => void };
@@ -52,6 +54,12 @@ export default class PhraseLinkerPlugin extends Plugin {
       id: "pl-preview-suggestions",
       name: "PL: Preview related links (dry run panel)",
       callback: () => this.handlePreviewSuggestions(),
+    });
+
+    this.addCommand({
+      id: "pl-apply-related-active",
+      name: "PL: Apply related links to active note (writes)",
+      callback: () => this.handleApplyActiveNoteLinks(),
     });
 
     this.registerEvent(this.app.vault.on("create", (file: TAbstractFile) =>
@@ -115,6 +123,43 @@ export default class PhraseLinkerPlugin extends Plugin {
     this.statusEl?.setText(`Previewed links for ${files.length} notes`);
   }
 
+  private async handleApplyActiveNoteLinks(): Promise<void> {
+    if (!this.settings.enableWriteMode) {
+      new Notice("Write mode is disabled. Enable it in settings first.");
+      return;
+    }
+
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view || !view.file) {
+      new Notice("Open a markdown note first.");
+      return;
+    }
+    const activeFile = view.file;
+
+    const result = await this.collectSuggestions();
+    if (!result) return;
+
+    const { files, suggestions } = result;
+    const srcIdx = files.findIndex((f) => f.path === activeFile.path);
+    if (srcIdx < 0) {
+      new Notice("Active note is outside current scan scope.");
+      return;
+    }
+
+    const links = this.linksForSourceNote(srcIdx, files, suggestions);
+    if (links.length === 0) {
+      new Notice("No related links passed the threshold for this note.");
+      return;
+    }
+
+    const original = await readFile(this.app.vault, activeFile);
+    const updated = upsertRelatedSection(original, links);
+    await this.app.vault.modify(activeFile, updated);
+
+    new Notice(`Inserted ${links.length} related links into ${activeFile.basename}`);
+    this.statusEl?.setText(`Updated related links: ${activeFile.basename}`);
+  }
+
   private async onFileChanged(kind: "create" | "modify" | "delete", fileLike: TAbstractFile): Promise<void> {
     if (!(fileLike instanceof TFile)) return;
     const file = fileLike as TFile;
@@ -176,7 +221,11 @@ export default class PhraseLinkerPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
-  private async collectSuggestions(): Promise<{ files: TFile[]; rows: SuggestionRow[] } | null> {
+  private async collectSuggestions(): Promise<{
+    files: TFile[];
+    suggestions: Suggestion[];
+    rows: SuggestionRow[];
+  } | null> {
     const files = listMarkdownFiles(this.app.vault, { ignoreFolders: this.settings.ignoreFolders });
     if (files.length < 2) {
       new Notice("Need at least 2 notes for similarity.");
@@ -202,12 +251,21 @@ export default class PhraseLinkerPlugin extends Plugin {
       score: s.score,
     }));
 
-    return { files, rows };
+    return { files, suggestions, rows };
   }
 
   private logSuggestionRows(rows: SuggestionRow[], fileCount: number): void {
     console.groupCollapsed(`🔗 Suggestions (no writes) for ${fileCount} notes`);
     console.table(rows);
     console.groupEnd();
+  }
+
+  private linksForSourceNote(srcIdx: number, files: TFile[], suggestions: Suggestion[]): string[] {
+    const links: string[] = [];
+    for (const s of suggestions) {
+      if (s.srcIdx !== srcIdx) continue;
+      links.push(pathToWikiTarget(files[s.dstIdx].path));
+    }
+    return Array.from(new Set(links));
   }
 }

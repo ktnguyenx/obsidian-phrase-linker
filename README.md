@@ -23,12 +23,14 @@
   - **PL: Analyze active note**
   - **PL: Build index & suggest links (no writes)**
   - **PL: Preview related links (dry run panel)**
+  - **PL: Apply related links to active note (writes)**
 
 ## Settings
 - Ignored folders (comma-separated)
 - Minimum similarity score (0.00-1.00)
 - Max links per note
 - Auto-open preview after build
+- Enable write mode (required for note modifications)
 
 ## Dev Setup
 ```bash
@@ -42,3 +44,9 @@ npm run dev # watch
 - [Stage 3 notes](docs/Stage3-Linker.md)
 - [Stage 4 notes](docs/Stage4-Settings-and-Preview.md)
 - [Bugs & fixes log](docs/feedback/bugs-and-fixes.md)
+
+## Stage Timeline
+- Stage 4: September 2025
+- Stage 5 & 6: October 2025
+- Stage 7: December 2025
+- Stage 8: February 2026

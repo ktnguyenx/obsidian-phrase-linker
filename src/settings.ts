@@ -6,6 +6,7 @@ export interface PhraseLinkerSettings {
   minScore: number;
   maxLinksPerNote: number;
   showPreviewOnBuild: boolean;
+  enableWriteMode: boolean;
 }
 
 export const DEFAULT_SETTINGS: PhraseLinkerSettings = {
@@ -13,6 +14,7 @@ export const DEFAULT_SETTINGS: PhraseLinkerSettings = {
   minScore: 0.22,
   maxLinksPerNote: 5,
   showPreviewOnBuild: true,
+  enableWriteMode: false,
 };
 
 export class PhraseLinkerSettingTab extends PluginSettingTab {
@@ -82,6 +84,19 @@ export class PhraseLinkerSettingTab extends PluginSettingTab {
             this.plugin.settings.showPreviewOnBuild = value;
             await this.plugin.saveSettings();
             new Notice(`Preview on build: ${value ? "on" : "off"}`);
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Enable write mode")
+      .setDesc("Allows commands to modify notes (off by default)")
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.enableWriteMode)
+          .onChange(async (value) => {
+            this.plugin.settings.enableWriteMode = value;
+            await this.plugin.saveSettings();
+            new Notice(`Write mode: ${value ? "enabled" : "disabled"}`);
           });
       });
   }

@@ -198,7 +198,8 @@ var DEFAULT_SETTINGS = {
   ignoreFolders: ["Templates/", "Archive/"],
   minScore: 0.22,
   maxLinksPerNote: 5,
-  showPreviewOnBuild: true
+  showPreviewOnBuild: true,
+  enableWriteMode: false
 };
 var PhraseLinkerSettingTab = class extends import_obsidian2.PluginSettingTab {
   constructor(app, plugin) {
@@ -239,6 +240,13 @@ var PhraseLinkerSettingTab = class extends import_obsidian2.PluginSettingTab {
         this.plugin.settings.showPreviewOnBuild = value;
         await this.plugin.saveSettings();
         new import_obsidian2.Notice(`Preview on build: ${value ? "on" : "off"}`);
+      });
+    });
+    new import_obsidian2.Setting(containerEl).setName("Enable write mode").setDesc("Allows commands to modify notes (off by default)").addToggle((toggle) => {
+      toggle.setValue(this.plugin.settings.enableWriteMode).onChange(async (value) => {
+        this.plugin.settings.enableWriteMode = value;
+        await this.plugin.saveSettings();
+        new import_obsidian2.Notice(`Write mode: ${value ? "enabled" : "disabled"}`);
       });
     });
   }
@@ -284,6 +292,42 @@ var SuggestionsPreviewModal = class extends import_obsidian3.Modal {
   }
 };
 
+// src/writer.ts
+function pathToWikiTarget(path) {
+  return path.replace(/\.md$/i, "");
+}
+function upsertRelatedSection(content, links) {
+  const uniqueLinks = Array.from(new Set(links));
+  const relatedBlock = [
+    "## Related",
+    ...uniqueLinks.map((link) => `- [[${link}]]`)
+  ];
+  const normalized = content.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  const start = lines.findIndex((line) => /^##\s+Related\s*$/i.test(line));
+  if (start === -1) {
+    const body = normalized.trimEnd();
+    return `${body}
+
+${relatedBlock.join("\n")}
+`;
+  }
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^##\s+/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+  const nextLines = [
+    ...lines.slice(0, start),
+    ...relatedBlock,
+    ...lines.slice(end)
+  ];
+  return `${nextLines.join("\n").replace(/\n+$/g, "")}
+`;
+}
+
 // main.ts
 var PhraseLinkerPlugin = class extends import_obsidian4.Plugin {
   constructor() {
@@ -316,6 +360,11 @@ var PhraseLinkerPlugin = class extends import_obsidian4.Plugin {
       id: "pl-preview-suggestions",
       name: "PL: Preview related links (dry run panel)",
       callback: () => this.handlePreviewSuggestions()
+    });
+    this.addCommand({
+      id: "pl-apply-related-active",
+      name: "PL: Apply related links to active note (writes)",
+      callback: () => this.handleApplyActiveNoteLinks()
     });
     this.registerEvent(this.app.vault.on(
       "create",
@@ -370,6 +419,36 @@ var PhraseLinkerPlugin = class extends import_obsidian4.Plugin {
     const { files, rows } = result;
     new SuggestionsPreviewModal(this.app, rows, files.length).open();
     this.statusEl?.setText(`Previewed links for ${files.length} notes`);
+  }
+  async handleApplyActiveNoteLinks() {
+    if (!this.settings.enableWriteMode) {
+      new import_obsidian4.Notice("Write mode is disabled. Enable it in settings first.");
+      return;
+    }
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+    if (!view || !view.file) {
+      new import_obsidian4.Notice("Open a markdown note first.");
+      return;
+    }
+    const activeFile = view.file;
+    const result = await this.collectSuggestions();
+    if (!result) return;
+    const { files, suggestions } = result;
+    const srcIdx = files.findIndex((f) => f.path === activeFile.path);
+    if (srcIdx < 0) {
+      new import_obsidian4.Notice("Active note is outside current scan scope.");
+      return;
+    }
+    const links = this.linksForSourceNote(srcIdx, files, suggestions);
+    if (links.length === 0) {
+      new import_obsidian4.Notice("No related links passed the threshold for this note.");
+      return;
+    }
+    const original = await readFile(this.app.vault, activeFile);
+    const updated = upsertRelatedSection(original, links);
+    await this.app.vault.modify(activeFile, updated);
+    new import_obsidian4.Notice(`Inserted ${links.length} related links into ${activeFile.basename}`);
+    this.statusEl?.setText(`Updated related links: ${activeFile.basename}`);
   }
   async onFileChanged(kind, fileLike) {
     if (!(fileLike instanceof import_obsidian4.TFile)) return;
@@ -440,11 +519,19 @@ var PhraseLinkerPlugin = class extends import_obsidian4.Plugin {
       to: names[s.dstIdx],
       score: s.score
     }));
-    return { files, rows };
+    return { files, suggestions, rows };
   }
   logSuggestionRows(rows, fileCount) {
     console.groupCollapsed(`\u{1F517} Suggestions (no writes) for ${fileCount} notes`);
     console.table(rows);
     console.groupEnd();
+  }
+  linksForSourceNote(srcIdx, files, suggestions) {
+    const links = [];
+    for (const s of suggestions) {
+      if (s.srcIdx !== srcIdx) continue;
+      links.push(pathToWikiTarget(files[s.dstIdx].path));
+    }
+    return Array.from(new Set(links));
   }
 };
