@@ -43,10 +43,5 @@ npm run dev # watch
 - [Stage 2 notes](docs/Stage2-Scanner.md)
 - [Stage 3 notes](docs/Stage3-Linker.md)
 - [Stage 4 notes](docs/Stage4-Settings-and-Preview.md)
+- [Stage 5 notes](docs/Stage5-Write-Mode.md)
 - [Bugs & fixes log](docs/feedback/bugs-and-fixes.md)
-
-## Stage Timeline
-- Stage 4: September 2025
-- Stage 5 & 6: October 2025
-- Stage 7: December 2025
-- Stage 8: February 2026
