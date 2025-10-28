@@ -20,3 +20,10 @@
 .phrase-linker-preview-table .phrase-linker-score {
   font-variant-numeric: tabular-nums;
 }
+
+.phrase-linker-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}

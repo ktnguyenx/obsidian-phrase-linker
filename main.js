@@ -336,7 +336,7 @@ var PhraseLinkerPlugin = class extends import_obsidian4.Plugin {
     this.settings = { ...DEFAULT_SETTINGS };
   }
   async onload() {
-    console.log("[PhraseLinker] onload (Stage 4)");
+    console.log("[PhraseLinker] onload (Stage 6)");
     await this.loadSettings();
     this.statusEl = this.addStatusBarItem();
     this.statusEl.classList.add("phrase-linker-status");
@@ -365,6 +365,11 @@ var PhraseLinkerPlugin = class extends import_obsidian4.Plugin {
       id: "pl-apply-related-active",
       name: "PL: Apply related links to active note (writes)",
       callback: () => this.handleApplyActiveNoteLinks()
+    });
+    this.addCommand({
+      id: "pl-apply-related-all",
+      name: "PL: Apply related links to all notes (writes)",
+      callback: () => this.handleApplyAllNotesLinks()
     });
     this.registerEvent(this.app.vault.on(
       "create",
@@ -450,6 +455,41 @@ var PhraseLinkerPlugin = class extends import_obsidian4.Plugin {
     new import_obsidian4.Notice(`Inserted ${links.length} related links into ${activeFile.basename}`);
     this.statusEl?.setText(`Updated related links: ${activeFile.basename}`);
   }
+  async handleApplyAllNotesLinks() {
+    if (!this.settings.enableWriteMode) {
+      new import_obsidian4.Notice("Write mode is disabled. Enable it in settings first.");
+      return;
+    }
+    const result = await this.collectSuggestions();
+    if (!result) return;
+    const { files, suggestions } = result;
+    const confirmed = await new ConfirmApplyAllModal(this.app, files.length).waitForChoice();
+    if (!confirmed) {
+      new import_obsidian4.Notice("Apply-all canceled.");
+      return;
+    }
+    let updated = 0;
+    let unchanged = 0;
+    let skippedNoLinks = 0;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const links = this.linksForSourceNote(i, files, suggestions);
+      if (links.length === 0) {
+        skippedNoLinks += 1;
+        continue;
+      }
+      const original = await readFile(this.app.vault, file);
+      const next = upsertRelatedSection(original, links);
+      if (next === original) {
+        unchanged += 1;
+        continue;
+      }
+      await this.app.vault.modify(file, next);
+      updated += 1;
+    }
+    new import_obsidian4.Notice(`Apply-all complete: updated ${updated}, unchanged ${unchanged}, no-links ${skippedNoLinks}`);
+    this.statusEl?.setText(`Apply-all: ${updated} updated`);
+  }
   async onFileChanged(kind, fileLike) {
     if (!(fileLike instanceof import_obsidian4.TFile)) return;
     const file = fileLike;
@@ -533,5 +573,44 @@ var PhraseLinkerPlugin = class extends import_obsidian4.Plugin {
       links.push(pathToWikiTarget(files[s.dstIdx].path));
     }
     return Array.from(new Set(links));
+  }
+};
+var ConfirmApplyAllModal = class extends import_obsidian4.Modal {
+  constructor(app, fileCount) {
+    super(app);
+    this.fileCount = fileCount;
+    this.resolved = false;
+  }
+  waitForChoice() {
+    return new Promise((resolve) => {
+      this.resolver = resolve;
+      this.open();
+    });
+  }
+  onOpen() {
+    const { contentEl, titleEl } = this;
+    titleEl.setText("Phrase Linker: Confirm Apply-All");
+    contentEl.empty();
+    contentEl.createEl("p", {
+      text: `This will update up to ${this.fileCount} notes by inserting or replacing a "Related" section.`
+    });
+    contentEl.createEl("p", {
+      text: "Continue?"
+    });
+    const actions = contentEl.createDiv({ cls: "phrase-linker-modal-actions" });
+    const cancelBtn = actions.createEl("button", { text: "Cancel" });
+    const applyBtn = actions.createEl("button", { text: "Apply to all", cls: "mod-cta" });
+    cancelBtn.addEventListener("click", () => this.finish(false));
+    applyBtn.addEventListener("click", () => this.finish(true));
+  }
+  onClose() {
+    this.contentEl.empty();
+    if (!this.resolved) this.finish(false);
+  }
+  finish(value) {
+    if (this.resolved) return;
+    this.resolved = true;
+    this.resolver?.(value);
+    this.close();
   }
 };

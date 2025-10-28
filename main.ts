@@ -1,6 +1,6 @@
 // main.ts
 import {
-  Notice, Plugin, TFile, TAbstractFile, MarkdownView
+  Notice, Plugin, TFile, TAbstractFile, MarkdownView, Modal
 } from "obsidian";
 import { listMarkdownFiles, readFile, isPathIgnored } from "./src/scanner";
 import { tokenize, termFreq, topK } from "./src/parser";
@@ -24,7 +24,7 @@ export default class PhraseLinkerPlugin extends Plugin {
   settings: PhraseLinkerSettings = { ...DEFAULT_SETTINGS };
 
   async onload(): Promise<void> {
-    console.log("[PhraseLinker] onload (Stage 4)");
+    console.log("[PhraseLinker] onload (Stage 6)");
     await this.loadSettings();
 
     this.statusEl = this.addStatusBarItem() as StatusBarEl;
@@ -60,6 +60,12 @@ export default class PhraseLinkerPlugin extends Plugin {
       id: "pl-apply-related-active",
       name: "PL: Apply related links to active note (writes)",
       callback: () => this.handleApplyActiveNoteLinks(),
+    });
+
+    this.addCommand({
+      id: "pl-apply-related-all",
+      name: "PL: Apply related links to all notes (writes)",
+      callback: () => this.handleApplyAllNotesLinks(),
     });
 
     this.registerEvent(this.app.vault.on("create", (file: TAbstractFile) =>
@@ -158,6 +164,49 @@ export default class PhraseLinkerPlugin extends Plugin {
 
     new Notice(`Inserted ${links.length} related links into ${activeFile.basename}`);
     this.statusEl?.setText(`Updated related links: ${activeFile.basename}`);
+  }
+
+  private async handleApplyAllNotesLinks(): Promise<void> {
+    if (!this.settings.enableWriteMode) {
+      new Notice("Write mode is disabled. Enable it in settings first.");
+      return;
+    }
+
+    const result = await this.collectSuggestions();
+    if (!result) return;
+    const { files, suggestions } = result;
+
+    const confirmed = await new ConfirmApplyAllModal(this.app, files.length).waitForChoice();
+    if (!confirmed) {
+      new Notice("Apply-all canceled.");
+      return;
+    }
+
+    let updated = 0;
+    let unchanged = 0;
+    let skippedNoLinks = 0;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const links = this.linksForSourceNote(i, files, suggestions);
+      if (links.length === 0) {
+        skippedNoLinks += 1;
+        continue;
+      }
+
+      const original = await readFile(this.app.vault, file);
+      const next = upsertRelatedSection(original, links);
+      if (next === original) {
+        unchanged += 1;
+        continue;
+      }
+
+      await this.app.vault.modify(file, next);
+      updated += 1;
+    }
+
+    new Notice(`Apply-all complete: updated ${updated}, unchanged ${unchanged}, no-links ${skippedNoLinks}`);
+    this.statusEl?.setText(`Apply-all: ${updated} updated`);
   }
 
   private async onFileChanged(kind: "create" | "modify" | "delete", fileLike: TAbstractFile): Promise<void> {
@@ -267,5 +316,52 @@ export default class PhraseLinkerPlugin extends Plugin {
       links.push(pathToWikiTarget(files[s.dstIdx].path));
     }
     return Array.from(new Set(links));
+  }
+}
+
+class ConfirmApplyAllModal extends Modal {
+  private resolved = false;
+  private resolver?: (value: boolean) => void;
+
+  constructor(app: Plugin["app"], private fileCount: number) {
+    super(app);
+  }
+
+  waitForChoice(): Promise<boolean> {
+    return new Promise((resolve) => {
+      this.resolver = resolve;
+      this.open();
+    });
+  }
+
+  onOpen(): void {
+    const { contentEl, titleEl } = this;
+    titleEl.setText("Phrase Linker: Confirm Apply-All");
+    contentEl.empty();
+    contentEl.createEl("p", {
+      text: `This will update up to ${this.fileCount} notes by inserting or replacing a "Related" section.`,
+    });
+    contentEl.createEl("p", {
+      text: "Continue?",
+    });
+
+    const actions = contentEl.createDiv({ cls: "phrase-linker-modal-actions" });
+    const cancelBtn = actions.createEl("button", { text: "Cancel" });
+    const applyBtn = actions.createEl("button", { text: "Apply to all", cls: "mod-cta" });
+
+    cancelBtn.addEventListener("click", () => this.finish(false));
+    applyBtn.addEventListener("click", () => this.finish(true));
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    if (!this.resolved) this.finish(false);
+  }
+
+  private finish(value: boolean): void {
+    if (this.resolved) return;
+    this.resolved = true;
+    this.resolver?.(value);
+    this.close();
   }
 }

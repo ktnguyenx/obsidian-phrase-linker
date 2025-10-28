@@ -24,6 +24,7 @@
   - **PL: Build index & suggest links (no writes)**
   - **PL: Preview related links (dry run panel)**
   - **PL: Apply related links to active note (writes)**
+  - **PL: Apply related links to all notes (writes)**
 
 ## Settings
 - Ignored folders (comma-separated)
@@ -44,4 +45,5 @@ npm run dev # watch
 - [Stage 3 notes](docs/Stage3-Linker.md)
 - [Stage 4 notes](docs/Stage4-Settings-and-Preview.md)
 - [Stage 5 notes](docs/Stage5-Write-Mode.md)
+- [Stage 6 notes](docs/Stage6-Apply-All.md)
 - [Bugs & fixes log](docs/feedback/bugs-and-fixes.md)
