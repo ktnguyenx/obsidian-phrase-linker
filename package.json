@@ -1,0 +1,19 @@
+{
+  "name": "obsidian-phrase-linker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild main.ts --bundle --external:obsidian --platform=node --format=cjs --outfile=main.js",
+    "dev": "npm run build -- --watch",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.24",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "obsidian": "^1.10.2-1"
+  }
+}
