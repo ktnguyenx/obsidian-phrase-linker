@@ -7,6 +7,7 @@ export interface PhraseLinkerSettings {
   maxLinksPerNote: number;
   showPreviewOnBuild: boolean;
   enableWriteMode: boolean;
+  skipAlreadyLinked: boolean;
 }
 
 export const DEFAULT_SETTINGS: PhraseLinkerSettings = {
@@ -15,6 +16,7 @@ export const DEFAULT_SETTINGS: PhraseLinkerSettings = {
   maxLinksPerNote: 5,
   showPreviewOnBuild: true,
   enableWriteMode: false,
+  skipAlreadyLinked: true,
 };
 
 export class PhraseLinkerSettingTab extends PluginSettingTab {
@@ -97,6 +99,19 @@ export class PhraseLinkerSettingTab extends PluginSettingTab {
             this.plugin.settings.enableWriteMode = value;
             await this.plugin.saveSettings();
             new Notice(`Write mode: ${value ? "enabled" : "disabled"}`);
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Skip already-linked notes")
+      .setDesc("When writing links, do not add targets already linked in the note")
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.skipAlreadyLinked)
+          .onChange(async (value) => {
+            this.plugin.settings.skipAlreadyLinked = value;
+            await this.plugin.saveSettings();
+            new Notice(`Skip already-linked: ${value ? "on" : "off"}`);
           });
       });
   }

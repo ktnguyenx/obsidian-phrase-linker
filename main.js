@@ -199,7 +199,8 @@ var DEFAULT_SETTINGS = {
   minScore: 0.22,
   maxLinksPerNote: 5,
   showPreviewOnBuild: true,
-  enableWriteMode: false
+  enableWriteMode: false,
+  skipAlreadyLinked: true
 };
 var PhraseLinkerSettingTab = class extends import_obsidian2.PluginSettingTab {
   constructor(app, plugin) {
@@ -249,6 +250,13 @@ var PhraseLinkerSettingTab = class extends import_obsidian2.PluginSettingTab {
         new import_obsidian2.Notice(`Write mode: ${value ? "enabled" : "disabled"}`);
       });
     });
+    new import_obsidian2.Setting(containerEl).setName("Skip already-linked notes").setDesc("When writing links, do not add targets already linked in the note").addToggle((toggle) => {
+      toggle.setValue(this.plugin.settings.skipAlreadyLinked).onChange(async (value) => {
+        this.plugin.settings.skipAlreadyLinked = value;
+        await this.plugin.saveSettings();
+        new import_obsidian2.Notice(`Skip already-linked: ${value ? "on" : "off"}`);
+      });
+    });
   }
 };
 
@@ -296,6 +304,22 @@ var SuggestionsPreviewModal = class extends import_obsidian3.Modal {
 function pathToWikiTarget(path) {
   return path.replace(/\.md$/i, "");
 }
+function normalizeWikiTarget(target) {
+  const noAlias = target.split("|")[0];
+  const noAnchor = noAlias.split("#")[0];
+  return noAnchor.trim();
+}
+function extractWikiTargets(content) {
+  const found = /* @__PURE__ */ new Set();
+  const regex = /\[\[([^\]]+)\]\]/g;
+  let match = regex.exec(content);
+  while (match) {
+    const normalized = normalizeWikiTarget(match[1]);
+    if (normalized.length > 0) found.add(normalized);
+    match = regex.exec(content);
+  }
+  return found;
+}
 function upsertRelatedSection(content, links) {
   const uniqueLinks = Array.from(new Set(links));
   const relatedBlock = [
@@ -336,7 +360,7 @@ var PhraseLinkerPlugin = class extends import_obsidian4.Plugin {
     this.settings = { ...DEFAULT_SETTINGS };
   }
   async onload() {
-    console.log("[PhraseLinker] onload (Stage 6)");
+    console.log("[PhraseLinker] onload (Stage 7)");
     await this.loadSettings();
     this.statusEl = this.addStatusBarItem();
     this.statusEl.classList.add("phrase-linker-status");
@@ -444,15 +468,20 @@ var PhraseLinkerPlugin = class extends import_obsidian4.Plugin {
       new import_obsidian4.Notice("Active note is outside current scan scope.");
       return;
     }
-    const links = this.linksForSourceNote(srcIdx, files, suggestions);
-    if (links.length === 0) {
+    const candidateLinks = this.linksForSourceNote(srcIdx, files, suggestions);
+    if (candidateLinks.length === 0) {
       new import_obsidian4.Notice("No related links passed the threshold for this note.");
       return;
     }
     const original = await readFile(this.app.vault, activeFile);
+    const { links, skippedAlreadyLinked } = this.filterAlreadyLinkedTargets(candidateLinks, original);
+    if (links.length === 0) {
+      new import_obsidian4.Notice("All suggested links already exist in this note.");
+      return;
+    }
     const updated = upsertRelatedSection(original, links);
     await this.app.vault.modify(activeFile, updated);
-    new import_obsidian4.Notice(`Inserted ${links.length} related links into ${activeFile.basename}`);
+    new import_obsidian4.Notice(`Inserted ${links.length} links into ${activeFile.basename} (skipped existing: ${skippedAlreadyLinked})`);
     this.statusEl?.setText(`Updated related links: ${activeFile.basename}`);
   }
   async handleApplyAllNotesLinks() {
@@ -471,15 +500,22 @@ var PhraseLinkerPlugin = class extends import_obsidian4.Plugin {
     let updated = 0;
     let unchanged = 0;
     let skippedNoLinks = 0;
+    let skippedAlreadyLinked = 0;
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const links = this.linksForSourceNote(i, files, suggestions);
-      if (links.length === 0) {
+      const candidateLinks = this.linksForSourceNote(i, files, suggestions);
+      if (candidateLinks.length === 0) {
         skippedNoLinks += 1;
         continue;
       }
       const original = await readFile(this.app.vault, file);
-      const next = upsertRelatedSection(original, links);
+      const filtered = this.filterAlreadyLinkedTargets(candidateLinks, original);
+      skippedAlreadyLinked += filtered.skippedAlreadyLinked;
+      if (filtered.links.length === 0) {
+        unchanged += 1;
+        continue;
+      }
+      const next = upsertRelatedSection(original, filtered.links);
       if (next === original) {
         unchanged += 1;
         continue;
@@ -487,7 +523,7 @@ var PhraseLinkerPlugin = class extends import_obsidian4.Plugin {
       await this.app.vault.modify(file, next);
       updated += 1;
     }
-    new import_obsidian4.Notice(`Apply-all complete: updated ${updated}, unchanged ${unchanged}, no-links ${skippedNoLinks}`);
+    new import_obsidian4.Notice(`Apply-all complete: updated ${updated}, unchanged ${unchanged}, no-links ${skippedNoLinks}, skipped-existing ${skippedAlreadyLinked}`);
     this.statusEl?.setText(`Apply-all: ${updated} updated`);
   }
   async onFileChanged(kind, fileLike) {
@@ -573,6 +609,17 @@ var PhraseLinkerPlugin = class extends import_obsidian4.Plugin {
       links.push(pathToWikiTarget(files[s.dstIdx].path));
     }
     return Array.from(new Set(links));
+  }
+  filterAlreadyLinkedTargets(links, content) {
+    if (!this.settings.skipAlreadyLinked) {
+      return { links, skippedAlreadyLinked: 0 };
+    }
+    const existing = extractWikiTargets(content);
+    const filtered = links.filter((target) => !existing.has(target));
+    return {
+      links: filtered,
+      skippedAlreadyLinked: links.length - filtered.length
+    };
   }
 };
 var ConfirmApplyAllModal = class extends import_obsidian4.Modal {

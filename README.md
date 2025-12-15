@@ -32,6 +32,7 @@
 - Max links per note
 - Auto-open preview after build
 - Enable write mode (required for note modifications)
+- Skip already-linked notes during writes
 
 ## Dev Setup
 ```bash
@@ -46,4 +47,5 @@ npm run dev # watch
 - [Stage 4 notes](docs/Stage4-Settings-and-Preview.md)
 - [Stage 5 notes](docs/Stage5-Write-Mode.md)
 - [Stage 6 notes](docs/Stage6-Apply-All.md)
+- [Stage 7 notes](docs/Stage7-Link-Quality.md)
 - [Bugs & fixes log](docs/feedback/bugs-and-fixes.md)

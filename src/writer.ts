@@ -3,6 +3,26 @@ export function pathToWikiTarget(path: string): string {
   return path.replace(/\.md$/i, "");
 }
 
+/** Normalize a wikilink target: remove aliases/anchors and trim spaces. */
+export function normalizeWikiTarget(target: string): string {
+  const noAlias = target.split("|")[0];
+  const noAnchor = noAlias.split("#")[0];
+  return noAnchor.trim();
+}
+
+/** Extract normalized wikilink targets from note content. */
+export function extractWikiTargets(content: string): Set<string> {
+  const found = new Set<string>();
+  const regex = /\[\[([^\]]+)\]\]/g;
+  let match: RegExpExecArray | null = regex.exec(content);
+  while (match) {
+    const normalized = normalizeWikiTarget(match[1]);
+    if (normalized.length > 0) found.add(normalized);
+    match = regex.exec(content);
+  }
+  return found;
+}
+
 /** Replace or append a level-2 "Related" section with the provided wiki-links. */
 export function upsertRelatedSection(content: string, links: string[]): string {
   const uniqueLinks = Array.from(new Set(links));

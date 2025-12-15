@@ -13,7 +13,7 @@ import {
   DEFAULT_SETTINGS,
 } from "./src/settings";
 import { SuggestionsPreviewModal, type SuggestionRow } from "./src/preview";
-import { pathToWikiTarget, upsertRelatedSection } from "./src/writer";
+import { extractWikiTargets, pathToWikiTarget, upsertRelatedSection } from "./src/writer";
 
 // helper so status bar has .setText()
 type StatusBarEl = HTMLElement & { setText: (text: string) => void };
@@ -24,7 +24,7 @@ export default class PhraseLinkerPlugin extends Plugin {
   settings: PhraseLinkerSettings = { ...DEFAULT_SETTINGS };
 
   async onload(): Promise<void> {
-    console.log("[PhraseLinker] onload (Stage 6)");
+    console.log("[PhraseLinker] onload (Stage 7)");
     await this.loadSettings();
 
     this.statusEl = this.addStatusBarItem() as StatusBarEl;
@@ -152,17 +152,23 @@ export default class PhraseLinkerPlugin extends Plugin {
       return;
     }
 
-    const links = this.linksForSourceNote(srcIdx, files, suggestions);
-    if (links.length === 0) {
+    const candidateLinks = this.linksForSourceNote(srcIdx, files, suggestions);
+    if (candidateLinks.length === 0) {
       new Notice("No related links passed the threshold for this note.");
       return;
     }
 
     const original = await readFile(this.app.vault, activeFile);
+    const { links, skippedAlreadyLinked } = this.filterAlreadyLinkedTargets(candidateLinks, original);
+    if (links.length === 0) {
+      new Notice("All suggested links already exist in this note.");
+      return;
+    }
+
     const updated = upsertRelatedSection(original, links);
     await this.app.vault.modify(activeFile, updated);
 
-    new Notice(`Inserted ${links.length} related links into ${activeFile.basename}`);
+    new Notice(`Inserted ${links.length} links into ${activeFile.basename} (skipped existing: ${skippedAlreadyLinked})`);
     this.statusEl?.setText(`Updated related links: ${activeFile.basename}`);
   }
 
@@ -185,17 +191,25 @@ export default class PhraseLinkerPlugin extends Plugin {
     let updated = 0;
     let unchanged = 0;
     let skippedNoLinks = 0;
+    let skippedAlreadyLinked = 0;
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const links = this.linksForSourceNote(i, files, suggestions);
-      if (links.length === 0) {
+      const candidateLinks = this.linksForSourceNote(i, files, suggestions);
+      if (candidateLinks.length === 0) {
         skippedNoLinks += 1;
         continue;
       }
 
       const original = await readFile(this.app.vault, file);
-      const next = upsertRelatedSection(original, links);
+      const filtered = this.filterAlreadyLinkedTargets(candidateLinks, original);
+      skippedAlreadyLinked += filtered.skippedAlreadyLinked;
+      if (filtered.links.length === 0) {
+        unchanged += 1;
+        continue;
+      }
+
+      const next = upsertRelatedSection(original, filtered.links);
       if (next === original) {
         unchanged += 1;
         continue;
@@ -205,7 +219,7 @@ export default class PhraseLinkerPlugin extends Plugin {
       updated += 1;
     }
 
-    new Notice(`Apply-all complete: updated ${updated}, unchanged ${unchanged}, no-links ${skippedNoLinks}`);
+    new Notice(`Apply-all complete: updated ${updated}, unchanged ${unchanged}, no-links ${skippedNoLinks}, skipped-existing ${skippedAlreadyLinked}`);
     this.statusEl?.setText(`Apply-all: ${updated} updated`);
   }
 
@@ -316,6 +330,21 @@ export default class PhraseLinkerPlugin extends Plugin {
       links.push(pathToWikiTarget(files[s.dstIdx].path));
     }
     return Array.from(new Set(links));
+  }
+
+  private filterAlreadyLinkedTargets(
+    links: string[],
+    content: string
+  ): { links: string[]; skippedAlreadyLinked: number } {
+    if (!this.settings.skipAlreadyLinked) {
+      return { links, skippedAlreadyLinked: 0 };
+    }
+    const existing = extractWikiTargets(content);
+    const filtered = links.filter((target) => !existing.has(target));
+    return {
+      links: filtered,
+      skippedAlreadyLinked: links.length - filtered.length,
+    };
   }
 }
 
