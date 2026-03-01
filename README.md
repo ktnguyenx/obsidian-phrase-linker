@@ -38,6 +38,7 @@
 ```bash
 npm install
 npm run dev # watch
+npm test
 ```
 
 ## Notes & Logs
@@ -48,4 +49,5 @@ npm run dev # watch
 - [Stage 5 notes](docs/Stage5-Write-Mode.md)
 - [Stage 6 notes](docs/Stage6-Apply-All.md)
 - [Stage 7 notes](docs/Stage7-Link-Quality.md)
+- [Stage 8 notes](docs/Stage8-Writer-Tests.md)
 - [Bugs & fixes log](docs/feedback/bugs-and-fixes.md)

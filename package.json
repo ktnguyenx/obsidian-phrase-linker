@@ -6,7 +6,9 @@
   "scripts": {
     "build": "esbuild main.ts --bundle --external:obsidian --platform=node --format=cjs --outfile=main.js",
     "dev": "npm run build -- --watch",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "build:test-writer": "esbuild src/writer.ts --bundle --platform=node --format=esm --outfile=dist/test-writer.mjs",
+    "test": "npm run build:test-writer && node --test tests/writer.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.19.24",
